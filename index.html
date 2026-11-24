@@ -338,6 +338,16 @@ table.mtx thead th button{font-size:12px;color:var(--ink);padding:5px 0}
 .mot-out .eyebrow{color:var(--accent)}
 .mot-out p{font-size:15px;line-height:1.5;white-space:pre-wrap}
 #motBox{display:flex;flex-direction:column;gap:10px}
+.ask{display:flex;flex-direction:column;gap:12px}
+.ask textarea{width:100%;min-height:64px;padding:12px 14px;border-radius:var(--r-md);border:1px solid var(--line);background:var(--card-solid);color:var(--ink);font:inherit;font-size:15px;resize:none}
+.ask textarea:focus{outline:none;border-color:var(--accent)}
+.ask-hints .chip{font-size:13px;padding:7px 11px;color:var(--ink)}
+#askBox{display:flex;flex-direction:column;gap:12px}
+#askBox:empty{display:none}
+.ask-pair{display:flex;flex-direction:column;gap:6px}
+.ask-q{align-self:flex-end;max-width:85%;padding:9px 13px;border-radius:16px 16px 4px 16px;background:var(--ink);color:var(--bg);font-size:14.5px;line-height:1.4}
+.ask-row{display:flex;gap:8px}
+.ask-row .mot-btn{flex:1;margin-top:0}
 .json-box{min-height:120px;font:12px/1.4 ui-monospace,Menlo,monospace;color:var(--muted)}
 .file-in{font:inherit;font-size:14px;color:var(--muted)}
 /* weekly planner */
@@ -935,7 +945,84 @@ function viewWeek(){
   dayPanel(sel) +
   metricsTable(sel) +
   weekPlanner(sel) +
-  questionsCard();
+  questionsCard() +
+  askCard();
+}
+/* ---------- ask: free-form questions about the whole path ---------- */
+const ASK_HINTS = ['Где у меня проседает?', 'Что я забыла сделать?', 'На чём сфокусироваться на этой неделе?', 'Какая гора стоит на месте?'];
+function askCard(){
+  if (ui.sample === null) return '';
+  return '<section class="glass ask">' +
+    '<h2>Спросить про мой путь</h2>' +
+    '<p class="note">Видит все три горы, лагеря, планы, недели и дневник. Спроси что угодно.</p>' +
+    '<div class="chips ask-hints">' + ASK_HINTS.map(h => '<button class="chip" data-act="askhint">' + esc(h) + '</button>').join('') + '</div>' +
+    '<div id="askBox">' + askBlock() + '</div>' +
+    '<textarea id="ask-q" rows="2" placeholder="Например: в каком деле я буксую?">' + esc(ui.askDraft || '') + '</textarea>' +
+    '<div id="askAct">' + askActions() + '</div>' +
+  '</section>';
+}
+function askBlock(){
+  const st = ui.ask || { hist: [] }, h = st.hist || [];
+  return h.slice(-3).map((x, i, arr) => '<div class="ask-pair">' +
+      '<p class="ask-q">' + esc(x.q) + '</p>' +
+      '<div class="mot-out"><span class="eyebrow">Ответ</span><p>' + esc(x.a || (st.busy && i === arr.length - 1 ? 'Смотрит твои записи…' : '')) + '</p></div>' +
+    '</div>').join('') +
+    (st.err ? '<p class="note">' + esc(st.err) + '</p>' : '');
+}
+function askActions(){
+  const st = ui.ask || { hist: [] }, h = st.hist || [];
+  return '<div class="ask-row">' +
+    (h.length && !st.busy ? '<button class="btn soft" data-act="askclear">Новый разговор</button>' : '') +
+    '<button class="btn mot-btn" data-act="ask"' + (st.busy ? ' disabled' : '') + '>' + I.spark + (st.busy ? 'Думает…' : 'Спросить') + '</button>' +
+  '</div>';
+}
+function refreshAsk(){
+  const b = document.getElementById('askBox'); if (b) b.innerHTML = askBlock();
+  const a = document.getElementById('askAct'); if (a) a.innerHTML = askActions();
+}
+function pathContext(){
+  const t0 = today(), cw = Math.min(12, curWeek()), diary = [];
+  for (let i = 29; i >= 0; i--) { const k = iso(new Date(t0.getTime() - i * DAY)), v = (S.diary[k] || '').trim(); if (v) diary.push({ дата: k, запись: v }); }
+  const weeks = [];
+  for (let w = 0; w <= Math.min(12, cw + 1); w++) {
+    const r = S.reviews[w] || {}, p = S.plans[w] || {}, days = p.days || {};
+    weeks.push({ неделя: w === 0 ? 'до старта' : w, даты: weekRange(w), текущая: w === cw,
+      главные_задачи: (p.top || []).map((t, i) => t.trim() ? t + (p.topDone && p.topDone[i] ? ' (сделано)' : ' (не отмечено)') : null).filter(Boolean),
+      дела_по_дням: Object.keys(days).filter(d => days[d].length).map(d => DOW[d] + ': ' + days[d].map(x => x.t + (x.done ? ' ✓' : ' ✗')).join('; ')),
+      где_выросла: r.grew || null, что_получилось: r.got || null, что_поменялось: r.shift || null, благодарность: p.thanks || null,
+      исполнение_процент: w >= 1 && score(w) !== null ? Math.round(score(w) * 100) : null,
+      движение_по_горам: w >= 1 && w <= cw ? ordered().map(g => peakOf(g).peak + ': ' + daysDone(w, g.id) + ' дн., заметки: ' + ([0,1,2,3,4,5,6].map(d => { const c = cell(w, g.id, d); return c && c.n ? DOW[d] + ' ' + c.n : null; }).filter(Boolean).join('; ') || 'нет')) : undefined });
+  }
+  return { сегодня: iso(t0), неделя_сейчас: cw === 0 ? 'до старта' : cw, рабочих_дней_в_неделе: S.workdays,
+    видение: S.main.vision, главная_цель: S.main.goal,
+    горы: ordered().map(g => ({ гора: peakOf(g).peak, главная: g.id === 'anverse', название: g.name, цель_12_недель: g.goal12,
+      лагеря: g.milestones.map(m => m.t + (m.done ? ' (взят)' : ' (не взят)')),
+      привычки: (g.habits || []).map(h => h.t + (h.norm ? ' — ' + h.norm : '')) })),
+    недели: weeks, дневник_30_дней: diary };
+}
+async function runAsk(q){
+  const sample = ui.sampleFn; if (!sample || !q) return;
+  const st = ui.ask = ui.ask || { hist: [] };
+  st.hist.push({ q, a: '' }); st.busy = true; st.err = null;
+  ui.askDraft = ''; const box = document.getElementById('ask-q'); if (box) { box.value = ''; autosize(box); }
+  refreshAsk();
+  const sys = 'Ты — честный и тёплый наставник женщины, которая строит медийный бизнес и проходит челлендж «12 недель». У неё три цели-горы: главная — Эверест, продакшн Anverse; опоры — Килиманджаро, онлайн-школа, и K2, AI-университет. Она склонна обесценивать себя.\n\n' +
+    'Все её данные (JSON):\n' + JSON.stringify(pathContext()) + '\n\n' +
+    'Отвечай на её вопросы по-русски, на «ты», опираясь только на эти данные. Будь конкретной: называй горы, лагеря, задачи и даты. Если чего-то в данных нет, так и скажи и предложи, что записать. ' +
+    'Пиши коротко: до 120 слов. Если нужен список, делай 2–4 строки, каждая начинается с «• ». Без заголовков, markdown и смайликов. Честно про просадки, но без упрёков; если есть чем гордиться, скажи одной фразой. Закончи одним конкретным шагом.';
+  const msgs = [];
+  st.hist.forEach((x, i) => { msgs.push({ role: 'user', content: (i === 0 ? sys + '\n\nВопрос: ' : '') + x.q }); if (x.a && i < st.hist.length - 1) msgs.push({ role: 'assistant', content: x.a }); });
+  const cur = st.hist[st.hist.length - 1];
+  try {
+    const { text } = await sample(msgs, { cache: false, onText: ({ text }) => { cur.a = text; refreshAsk(); } });
+    cur.a = text;
+  } catch(e) {
+    const code = e && e.code;
+    if (code === 'not_granted' || code === 'sampling_disabled' || code === 'not_declared' || code === 'capability_disabled' || code === 'capability_removed') { ui.sample = null; ui.ask = null; st.busy = false; render(); return; }
+    if (e && e.text) cur.a = e.text; else st.hist.pop();
+    st.err = code === 'rate_limited' ? 'Слишком много запросов. Попробуй через несколько минут.' : 'Не получилось связаться. Попробуй ещё раз.';
+  }
+  st.busy = false; refreshAsk();
 }
 /* ---------- three weekly questions with their own week strip + motivator ---------- */
 const hasAnswers = w => { const r = S.reviews[w] || {}; return !!((r.grew || '').trim() || (r.got || '').trim() || (r.shift || '').trim()); };
@@ -1356,6 +1443,9 @@ document.addEventListener('click', e => {
     case 'pday': ui.pday = +el.dataset.d; render(); break;
     case 'qweek': ui.qweek = +el.dataset.w; render(); break;
     case 'mot': runMot(); break;
+    case 'askhint': if (!(ui.ask && ui.ask.busy)) runAsk(el.textContent); break;
+    case 'ask': { const q = (document.getElementById('ask-q') || {}).value; if (q && q.trim()) runAsk(q.trim()); else { const b = document.getElementById('ask-q'); if (b) b.focus(); } break; }
+    case 'askclear': ui.ask = null; refreshAsk(); break;
     case 'export': exportSheet(); break;
     case 'import': importSheet(); break;
     case 'excopy': {
@@ -1429,7 +1519,8 @@ function autosize(t){ t.style.height = 'auto'; t.style.height = (t.scrollHeight 
 document.addEventListener('input', e => {
   const t = e.target;
   if (t.tagName === 'TEXTAREA') autosize(t);
-  if (t.dataset.diary) {
+  if (t.id === 'ask-q') ui.askDraft = t.value;
+  else if (t.dataset.diary) {
     S.diary[t.dataset.diary] = t.value; save();
     const st = document.getElementById('ds-' + t.dataset.diary); if (st) st.textContent = t.value ? 'сохранено' : '';
   }

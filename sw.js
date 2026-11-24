@@ -1,5 +1,5 @@
 // Offline support: network-first for the page (so updates show up), cache fallback when offline.
-const CACHE = 'ascent-v1';
+const CACHE = 'ascent-v2';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
